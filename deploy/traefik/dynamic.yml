@@ -1,0 +1,8 @@
+http:
+  middlewares:
+    simulaiz-headers:
+      headers:
+        frameDeny: true
+        referrerPolicy: "no-referrer"
+        stsSeconds: 31536000
+        contentTypeNosniff: true

@@ -1,0 +1,65 @@
+version: "3.9"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    image: simulaz/app:dev
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - APP_ENV=${APP_ENV:-development}
+      - SIMULAIZ_LOG_LEVEL=${SIMULAIZ_LOG_LEVEL:-INFO}
+      - SIMULAIZ_PORT=${SIMULAIZ_PORT:-8000}
+      - AVATAR_MODE=${AVATAR_MODE:-liveportrait}
+      - AVATAR_IMAGE=${AVATAR_IMAGE:-/app/assets/avatar.png}
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
+      - NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}
+    volumes:
+      - ./:/app
+      - ./models:/models
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.simulaiz.rule=Host(`simulaiz.test.neutralaiz.com`)"
+      - "traefik.http.routers.simulaiz.entrypoints=web"
+      - "traefik.http.services.simulaiz.loadbalancer.server.port=8000"
+      - "traefik.http.middlewares.simulaiz-headers.headers.stsSeconds=31536000"
+      - "traefik.http.routers.simulaiz.middlewares=simulaiz-headers"
+    networks:
+      - webhost-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: ["gpu"]
+              driver: nvidia
+    # Compose v2+ supports shorthand 'gpus: all' on compatible engines
+    gpus: all
+
+  traefik:
+    image: traefik:v2.11
+    restart: unless-stopped
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
+      - --entrypoints.web.address=:80
+    ports:
+      - "80:80"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./deploy/traefik:/etc/traefik/dynamic:ro
+      - traefik-data:/var/lib/traefik
+    networks:
+      - webhost-network
+
+networks:
+  webhost-network:
+    external: true
+
+volumes:
+  traefik-data:
+    name: traefik-data

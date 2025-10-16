@@ -1,0 +1,66 @@
+version: "3.9"
+
+services:
+  app:
+    image: simulaz/app:latest
+    env_file:
+      - .env
+    environment:
+      - APP_ENV=${APP_ENV:-production}
+      - SIMULAIZ_LOG_LEVEL=${SIMULAIZ_LOG_LEVEL:-INFO}
+      - SIMULAIZ_PORT=${SIMULAIZ_PORT:-8000}
+    networks:
+      - webhost-network
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.simulaiz.rule=Host(`simulaiz.test.neutralaiz.com`)"
+        - "traefik.http.routers.simulaiz.entrypoints=web"
+        - "traefik.http.services.simulaiz.loadbalancer.server.port=8000"
+        - "traefik.http.routers.simulaiz.middlewares=simulaiz-headers"
+        - "traefik.http.middlewares.simulaiz-headers.headers.stsSeconds=31536000"
+      resources:
+        reservations:
+          devices:
+            - capabilities: ["gpu"]
+              driver: nvidia
+
+  traefik:
+    image: traefik:v2.11
+    ports:
+      - target: 80
+        published: 80
+        protocol: tcp
+        mode: host
+    networks:
+      - webhost-network
+    volumes:
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+        read_only: true
+      - traefik-data:/var/lib/traefik
+    configs:
+      - source: traefik-dynamic
+        target: /etc/traefik/dynamic/dynamic.yml
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: on-failure
+
+networks:
+  webhost-network:
+    external: true
+
+volumes:
+  traefik-data:
+    external: false
+
+configs:
+  traefik-dynamic:
+    file: ./traefik/dynamic.yml

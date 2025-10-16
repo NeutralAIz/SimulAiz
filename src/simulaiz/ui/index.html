@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SimulAiz Demo Control Panel</title>
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+    <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.15.4/dist/livekit-client.umd.min.js"></script>
+    <style>
+      body { font-family: system-ui, sans-serif; background:#0b1220; color:#e5e7eb; margin:0; }
+      .container { max-width: 960px; margin: 24px auto; padding: 16px; }
+      .card { background:#0f172a; border:1px solid #1f2937; border-radius:12px; padding:16px; margin-bottom:16px; }
+      .row { display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      label { display:block; font-size: 12px; color:#9ca3af; margin-bottom:6px; }
+      input, select, textarea { width: 100%; padding:10px; background:#0b1220; color:#e5e7eb; border:1px solid #334155; border-radius:8px; }
+      textarea { min-height: 80px; }
+      .s { display:flex; gap:8px; align-items:center; }
+      .btn { background:#2563eb; padding:10px 14px; border-radius:8px; border:none; color:white; cursor:pointer; }
+      .btn.secondary { background:#1f2937; }
+      .status { font-size:12px; color:#93c5fd; margin-left:8px; }
+      .video-wrap { display:flex; gap:12px; }
+      video { width: 100%; background:black; border-radius:8px; }
+      .hint { font-size:12px; color:#94a3b8; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>SimulAiz Demo</h1>
+      <p class="hint">Set session details, connect to LiveKit, and interact.</p>
+
+      <div class="card">
+        <h3>Connection</h3>
+        <div class="row">
+          <div>
+            <label>Room Name</label>
+            <input id="room" value="simulaiz-demo" />
+          </div>
+          <div>
+            <label>Your Name</label>
+            <input id="name" value="Demo User" />
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>Call Reason</label>
+            <input id="reason" placeholder="e.g., Test 3D avatar + TTS" />
+          </div>
+          <div>
+            <label>Mood</label>
+            <select id="mood">
+              <option>normal</option>
+              <option>happy</option>
+              <option>sad</option>
+              <option>scared</option>
+              <option>panicked</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>Caller Details (JSON)</label>
+            <textarea id="caller">{"phone":"(416) 555-1234","city":"Toronto"}</textarea>
+          </div>
+          <div>
+            <label>Character Attributes (JSON)</label>
+            <textarea id="attributes">{"role":"assistant","domain":"general"}</textarea>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Voice & Avatar</h3>
+        <div class="row">
+          <div>
+            <label>TTS Provider</label>
+            <select id="ttsProvider">
+              <option>elevenlabs</option>
+              <option>azure</option>
+              <option>coqui</option>
+              <option>cartesia</option>
+            </select>
+          </div>
+          <div>
+            <label>Voice (ID or Name)</label>
+            <input id="voice" placeholder="e.g., Rachel" />
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>Avatar Mode</label>
+            <select id="avatarMode">
+              <option value="liveportrait">LivePortrait</option>
+              <option value="wav2lip">Wav2Lip (ultra‑real)</option>
+              <option value="reactive">Reactive (fallback)</option>
+            </select>
+          </div>
+          <div>
+            <label>Avatar Headshot</label>
+            <div class="s">
+              <input type="file" id="avatarFile" accept="image/*" />
+              <button class="btn secondary" id="uploadAvatar">Upload</button>
+            </div>
+            <div class="hint" id="avatarUploadHint">No file uploaded</div>
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>Avatar FPS</label>
+            <input id="avatarFps" type="number" min="10" max="60" value="30" />
+          </div>
+          <div class="row" style="grid-template-columns: 1fr 1fr; gap: 12px;">
+            <div>
+              <label>Width</label>
+              <input id="avatarW" type="number" value="1280" />
+            </div>
+            <div>
+              <label>Height</label>
+              <input id="avatarH" type="number" value="720" />
+            </div>
+          </div>
+        </div>
+        <div class="s" style="margin-top:8px;">
+          <button class="btn" id="applyAvatar">Apply Avatar Settings</button>
+          <span class="hint">Applies immediately via data channel</span>
+          <button class="btn" id="ultraReal">Ultra Real (Wav2Lip)</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Headshot Cropper</h3>
+        <div class="row">
+          <div>
+            <label>Crop Preview</label>
+            <canvas id="cropCanvas" width="384" height="384" style="background:#111;border:1px solid #334155;border-radius:8px;"></canvas>
+          </div>
+          <div>
+            <label>Scale</label>
+            <input type="range" id="cropScale" min="0.5" max="2.0" step="0.01" value="1.0" />
+            <label>Offset X</label>
+            <input type="range" id="cropX" min="-200" max="200" step="1" value="0" />
+            <label>Offset Y</label>
+            <input type="range" id="cropY" min="-200" max="200" step="1" value="0" />
+            <div class="s" style="margin-top:8px;">
+              <button class="btn secondary" id="cropUseUpload">Load Uploaded</button>
+              <button class="btn" id="cropUpload">Crop & Upload</button>
+            </div>
+            <div class="hint">Use sliders to position/scale the face, then upload.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Wav2Lip Weights</h3>
+        <div class="row">
+          <div>
+            <label>Weights URL</label>
+            <input id="w2lUrl" placeholder="https://.../wav2lip_gan.pth" />
+          </div>
+          <div>
+            <label>Path in Container</label>
+            <input id="w2lPath" value="/models/wav2lip/wav2lip_gan.pth" />
+          </div>
+        </div>
+        <div class="s" style="margin-top:8px;">
+          <button class="btn" id="fetchW2L">Fetch Weights</button>
+          <button class="btn secondary" id="checkW2L">Check Status</button>
+          <span class="hint" id="w2lStatus">Unknown</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Generate Headshot</h3>
+        <div class="row">
+          <div>
+            <label>Description</label>
+            <textarea id="genPrompt">front-facing studio portrait photo of a 30-year-old person, neutral expression, plain background, photorealistic, sharp focus</textarea>
+          </div>
+          <div>
+            <label>Seed</label>
+            <input id="genSeed" type="number" value="42" />
+            <label>Resolution</label>
+            <div class="row" style="grid-template-columns: 1fr 1fr; gap: 12px;">
+              <input id="genW" type="number" value="768" />
+              <input id="genH" type="number" value="768" />
+            </div>
+            <div class="s" style="margin-top:8px;">
+              <button class="btn" id="genAvatar">Generate</button>
+            </div>
+            <div class="hint" id="genStatus">Idle</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Quality Controls</h3>
+        <div class="row">
+          <div>
+            <label>STT Quality</label>
+            <select id="sttQuality">
+              <option>high</option>
+              <option>balanced</option>
+              <option>low</option>
+            </select>
+          </div>
+          <div>
+            <label>TTS Sample Rate</label>
+            <select id="ttsRate">
+              <option>48000</option>
+              <option>44100</option>
+              <option>24000</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="card s">
+        <button class="btn" id="connect">Connect</button>
+        <button class="btn secondary" id="disconnect">Disconnect</button>
+        <span class="status" id="status">Idle</span>
+      </div>
+
+      <div class="card video-wrap">
+        <div style="flex:1">
+          <h3>Local</h3>
+          <video id="vLocal" autoplay muted playsinline></video>
+        </div>
+        <div style="flex:1">
+          <h3>Remote</h3>
+          <div id="remote"></div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const statusEl = document.getElementById('status');
+      let room = null;
+
+      let uploadedInternalAvatarPath = ""; // container-internal path for the agent
+
+      function meta() {
+        let meta = { reason: document.getElementById('reason').value, mood: document.getElementById('mood').value };
+        try { meta.caller = JSON.parse(document.getElementById('caller').value || '{}'); } catch {}
+        try { meta.attributes = JSON.parse(document.getElementById('attributes').value || '{}'); } catch {}
+        meta.voice = { provider: document.getElementById('ttsProvider').value, voice: document.getElementById('voice').value };
+        meta.avatar = {
+          mode: document.getElementById('avatarMode').value,
+          image: uploadedInternalAvatarPath || document.getElementById('avatarImg')?.value || "",
+          fps: parseInt(document.getElementById('avatarFps').value||"30"),
+          width: parseInt(document.getElementById('avatarW').value||"1280"),
+          height: parseInt(document.getElementById('avatarH').value||"720"),
+        };
+        meta.quality = { stt: document.getElementById('sttQuality').value, ttsRate: document.getElementById('ttsRate').value };
+        return meta;
+      }
+
+      async function getToken(roomName, name) {
+        const qs = new URLSearchParams({ roomName, name, userType: 'caller', metadata: JSON.stringify(meta()) });
+        const res = await fetch(`/api/get-token?${qs.toString()}`);
+        if (!res.ok) throw new Error('token fetch failed');
+        return res.json();
+      }
+
+      function setStatus(txt) { statusEl.textContent = txt; }
+
+      async function doConnect() {
+        const roomName = document.getElementById('room').value || 'simulaiz-demo';
+        const name = document.getElementById('name').value || 'Demo User';
+        try {
+          setStatus('Fetching token…');
+          const { token, url } = await getToken(roomName, name);
+          if (!window.LiveKit) throw new Error('LiveKit SDK not loaded');
+          if (room) await room.disconnect?.();
+          room = new LiveKit.Room({ adaptiveStream: true, dynacast: true });
+          setStatus('Connecting…');
+          await room.connect(url, token);
+          setStatus('Connected');
+          // Publish local tracks
+          const mic = await LiveKit.createLocalAudioTrack();
+          await room.localParticipant.publishTrack(mic);
+          const cam = await LiveKit.createLocalVideoTrack();
+          await room.localParticipant.publishTrack(cam);
+          const elLocal = document.getElementById('vLocal');
+          const localPub = room.localParticipant.getTrackPublications().find(p=>p.kind==='video');
+          if (localPub) LiveKit.attachTrack(localPub.track, elLocal);
+          const remoteDiv = document.getElementById('remote');
+          room.on(LiveKit.RoomEvent.TrackSubscribed, (track, pub, participant) => {
+            if (track.kind === 'video' || track.kind === 'audio') {
+              const mediaEl = track.attach();
+              mediaEl.style.maxWidth = '100%';
+              remoteDiv.appendChild(mediaEl);
+            }
+          });
+        } catch (e) {
+          console.error(e);
+          setStatus('Error: ' + (e?.message || e));
+        }
+      }
+
+      async function doDisconnect() {
+        try { await room?.disconnect?.(); setStatus('Disconnected'); } catch {}
+      }
+
+      document.getElementById('connect').addEventListener('click', doConnect);
+      document.getElementById('disconnect').addEventListener('click', doDisconnect);
+    </script>
+  </body>
+  </html>
+      // Upload avatar image to the container and retain internal path
+      document.getElementById('uploadAvatar').addEventListener('click', async () => {
+        const f = document.getElementById('avatarFile').files?.[0];
+        if (!f) { alert('Select an image first'); return; }
+        const fd = new FormData();
+        fd.append('file', f);
+        const res = await fetch('/api/upload-avatar', { method: 'POST', body: fd });
+        if (!res.ok) { alert('Upload failed'); return; }
+        const data = await res.json();
+        uploadedInternalAvatarPath = data.internalPath || '';
+        const hint = document.getElementById('avatarUploadHint');
+        hint.textContent = `Uploaded: ${data.publicUrl || f.name}`;
+      });
+
+      // Apply avatar settings live via data channel
+      document.getElementById('applyAvatar').addEventListener('click', async () => {
+        if (!room || room.state !== 'connected') { alert('Connect first'); return; }
+        const payload = {
+          type: 'caller.sim',
+          set: {
+            avatar_mode: document.getElementById('avatarMode').value,
+            avatar_image: uploadedInternalAvatarPath || '',
+            avatar_fps: parseInt(document.getElementById('avatarFps').value||'30'),
+            avatar_width: parseInt(document.getElementById('avatarW').value||'1280'),
+            avatar_height: parseInt(document.getElementById('avatarH').value||'720'),
+          }
+        };
+        const enc = new TextEncoder();
+        try {
+          room.localParticipant.publishData(enc.encode(JSON.stringify(payload)), LiveKit.DataPacket_Kind.RELIABLE);
+          setStatus('Avatar settings sent');
+        } catch (e) {
+          console.error(e);
+          alert('Failed to send avatar settings');
+        }
+      });
+
+      // One-click Ultra Real: fetch weights (if URL provided) and switch mode
+      document.getElementById('ultraReal').addEventListener('click', async () => {
+        const url = document.getElementById('w2lUrl').value.trim();
+        const path = document.getElementById('w2lPath').value.trim();
+        if (url) {
+          try { await fetch('/api/fetch-w2l-weights', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url, path}) }); } catch {}
+        }
+        if (!room || room.state !== 'connected') { alert('Connect first'); return; }
+        const payload = {
+          type: 'caller.sim',
+          set: {
+            avatar_mode: 'wav2lip',
+            avatar_image: uploadedInternalAvatarPath || '',
+            avatar_fps: parseInt(document.getElementById('avatarFps').value||'25'),
+            avatar_width: parseInt(document.getElementById('avatarW').value||'640'),
+            avatar_height: parseInt(document.getElementById('avatarH').value||'640'),
+          }
+        };
+        const enc = new TextEncoder();
+        try { room.localParticipant.publishData(enc.encode(JSON.stringify(payload)), LiveKit.DataPacket_Kind.RELIABLE); setStatus('Ultra Real applied'); } catch {}
+      });
+
+      // --- Cropper state ---
+      let cropImg = new Image(); let cropLoaded = false;
+      const cropCanvas = document.getElementById('cropCanvas');
+      const ctx = cropCanvas.getContext('2d');
+      function redrawCrop() {
+        ctx.fillStyle = '#111'; ctx.fillRect(0,0,cropCanvas.width,cropCanvas.height);
+        if (!cropLoaded) return;
+        const scale = parseFloat(document.getElementById('cropScale').value);
+        const ox = parseInt(document.getElementById('cropX').value);
+        const oy = parseInt(document.getElementById('cropY').value);
+        const iw = cropImg.width * scale; const ih = cropImg.height * scale;
+        const x = (cropCanvas.width - iw)/2 + ox; const y = (cropCanvas.height - ih)/2 + oy;
+        ctx.drawImage(cropImg, x, y, iw, ih);
+      }
+      ['cropScale','cropX','cropY'].forEach(id=>{
+        document.getElementById(id).addEventListener('input', redrawCrop);
+      });
+      document.getElementById('cropUseUpload').addEventListener('click', async () => {
+        // Try last uploaded file preview or prompt upload
+        const f = document.getElementById('avatarFile').files?.[0];
+        if (!f) { alert('Select a file in Voice & Avatar, then click Upload first.'); return; }
+        const url = URL.createObjectURL(f);
+        cropImg.onload = () => { cropLoaded = true; redrawCrop(); };
+        cropImg.src = url;
+      });
+      document.getElementById('cropUpload').addEventListener('click', async () => {
+        if (!cropLoaded) { alert('Load an image into the cropper first'); return; }
+        // Export canvas as PNG, send to /api/upload-avatar
+        cropCanvas.toBlob(async (blob) => {
+          if (!blob) return;
+          const fd = new FormData();
+          fd.append('file', new File([blob], 'cropped.png', { type: 'image/png' }));
+          const res = await fetch('/api/upload-avatar', { method: 'POST', body: fd });
+          if (!res.ok) { alert('Crop upload failed'); return; }
+          const data = await res.json();
+          uploadedInternalAvatarPath = data.internalPath || '';
+          document.getElementById('avatarUploadHint').textContent = `Cropped uploaded: ${data.publicUrl || ''}`;
+        }, 'image/png');
+      });
+
+      // --- Wav2Lip weights helpers ---
+      document.getElementById('fetchW2L').addEventListener('click', async () => {
+        const url = document.getElementById('w2lUrl').value.trim();
+        const path = document.getElementById('w2lPath').value.trim();
+        if (!url) { alert('Provide a weights URL'); return; }
+        const res = await fetch('/api/fetch-w2l-weights', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url, path}) });
+        const data = await res.json();
+        document.getElementById('w2lStatus').textContent = data.ok ? `Downloaded to ${data.path}` : 'Failed';
+      });
+      document.getElementById('checkW2L').addEventListener('click', async () => {
+        const path = document.getElementById('w2lPath').value.trim();
+        const res = await fetch(`/api/w2l-weights-status?path=${encodeURIComponent(path)}`);
+        const data = await res.json();
+        document.getElementById('w2lStatus').textContent = data.exists ? `Exists at ${data.path}` : 'Missing';
+      });
+
+      // --- Generate avatar ---
+      document.getElementById('genAvatar').addEventListener('click', async () => {
+        document.getElementById('genStatus').textContent = 'Generating…';
+        const prompt = document.getElementById('genPrompt').value;
+        const width = parseInt(document.getElementById('genW').value||'768');
+        const height = parseInt(document.getElementById('genH').value||'768');
+        const seed = parseInt(document.getElementById('genSeed').value||'42');
+        const res = await fetch('/api/generate-avatar', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({prompt, width, height, seed}) });
+        if (!res.ok) { document.getElementById('genStatus').textContent = 'Failed'; return; }
+        const data = await res.json();
+        uploadedInternalAvatarPath = data.internalPath || '';
+        document.getElementById('avatarUploadHint').textContent = `Generated: ${data.publicUrl}`;
+        // Load generated into cropper for optional adjustments
+        const img = new Image(); img.onload = ()=>{ cropImg = img; cropLoaded = true; redrawCrop(); };
+        img.src = data.publicUrl;
+        document.getElementById('genStatus').textContent = 'Done';
+      });

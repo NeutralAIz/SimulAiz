@@ -1,0 +1,97 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment variables and secrets
+.env
+*.pem
+*.key
+secrets/
+
+# Model files (large binary files)
+models/**/*.pth
+models/**/*.pt
+models/**/*.ckpt
+models/**/*.safetensors
+models/**/*.bin
+*.pth
+*.pt
+*.ckpt
+
+# Keep directory structure but ignore model files
+!models/**/.gitkeep
+!models/.gitkeep
+
+# XTTS models
+models/xtts/**
+
+# Wav2Lip models
+models/wav2lip/**/*.pth
+
+# Audio/Video output
+outputs/
+*.wav
+*.mp3
+*.mp4
+*.avi
+temp/
+
+# Logs
+*.log
+logs/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Docker
+.dockerignore
+
+# Deployment
+deploy/temp/
+*.tar.gz
+*.tar
+
+# OS
+.DS_Store
+Thumbs.db

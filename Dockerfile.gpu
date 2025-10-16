@@ -1,0 +1,55 @@
+FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    TZ=Etc/UTC
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+# System deps for audio/TTS/vision
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    ffmpeg espeak-ng libespeak-ng1 libsndfile1 \
+    libgl1 libglib2.0-0 libsm6 libxext6 libxrender1 \
+    git curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+# Python 3.11 via deadsnakes (Ubuntu 22.04)
+RUN apt-get update && apt-get install -y --no-install-recommends tzdata software-properties-common && \
+    add-apt-repository ppa:deadsnakes/ppa -y && apt-get update && \
+    apt-get install -y --no-install-recommends python3.11 python3.11-venv python3.11-distutils && \
+    ln -sf /usr/bin/python3.11 /usr/local/bin/python && \
+    python -m ensurepip --upgrade || true && \
+    python -m pip install --upgrade pip
+
+# Torch CUDA 12.1 + xformers
+RUN pip install --index-url https://download.pytorch.org/whl/cu121 \
+    torch==2.5.1+cu121 torchvision==0.20.1+cu121 torchaudio==2.5.1+cu121 && \
+    pip install xformers==0.0.28.post3 --index-url https://download.pytorch.org/whl/cu121
+
+COPY pyproject.toml README.md ./
+COPY src ./src
+COPY tests ./tests
+COPY AGENTS.md ./AGENTS.md
+COPY scenarios ./scenarios
+COPY assets ./assets
+COPY docs ./docs
+COPY deploy ./deploy
+
+# Remove conflicting system packages before pip install
+RUN apt-get update && apt-get remove -y python3-blinker && \
+    rm -rf /var/lib/apt/lists/*
+
+# Project deps (include faster-whisper, TTS, etc.)
+RUN pip install -e .
+
+# Clone and setup Wav2Lip (no setup.py so manual install)
+# Skip requirements.txt as deps are already installed from main project
+RUN git clone https://github.com/Rudrabha/Wav2Lip.git /opt/Wav2Lip
+
+# Add Wav2Lip to PYTHONPATH so it can be imported
+ENV PYTHONPATH="/opt:${PYTHONPATH}"
+
+CMD ["python", "-m", "simulaiz"]
