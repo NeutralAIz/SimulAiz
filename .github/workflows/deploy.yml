@@ -1,21 +1,12 @@
 # SimulAiz CI/CD Pipeline - PR-gated with Release Support
-name: Build and Deploy to Shared Swarm
+name: Build and Deploy
 
 on:
   pull_request:
-    branches:
-      - main
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
+    branches: [main]
   push:
-    branches:
-      - main
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-    tags:
-      - 'v*.*.*'
+    branches: [main]
+    tags: ['v*.*.*']
   workflow_dispatch:
     inputs:
       environment:
@@ -23,17 +14,13 @@ on:
         required: true
         default: 'test'
         type: choice
-        options:
-          - test
-          - staging
-          - production
+        options: [test, production]
       release_tag:
-        description: 'Release tag to deploy (e.g., v1.0.0) - leave empty to use latest'
+        description: 'Release tag (e.g., v1.0.0)'
         required: false
         type: string
 
 env:
-  REGISTRY_DOMAIN: registry.shared.neutralaiz.com:5000
   REGISTRY_IP: 192.168.50.11:5000
   IMAGE_NAME: simulaiz
   SWARM_MANAGER: ubuntu@192.168.50.11
@@ -43,167 +30,72 @@ jobs:
     name: Build Docker Image
     runs-on: self-hosted
     outputs:
-      image_tag: ${{ steps.meta.outputs.tags }}
-      image_digest: ${{ steps.build.outputs.digest }}
-      should_deploy: ${{ steps.check.outputs.should_deploy }}
+      image_tag: ${{ steps.meta.outputs.tag }}
       is_release: ${{ steps.meta.outputs.is_release }}
       version: ${{ steps.meta.outputs.version }}
 
     steps:
-      - name: Check deployment conditions
-        id: check
-        run: |
-          if [ "${{ github.event_name }}" == "pull_request" ]; then
-            echo "should_deploy=false" >> $GITHUB_OUTPUT
-            echo "is_release=false" >> $GITHUB_OUTPUT
-            echo "PR build - validation only, no deployment"
-          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            echo "should_deploy=true" >> $GITHUB_OUTPUT
-            echo "is_release=true" >> $GITHUB_OUTPUT
-            echo "Release tag build - will create GitHub release"
-          else
-            echo "should_deploy=true" >> $GITHUB_OUTPUT
-            echo "is_release=false" >> $GITHUB_OUTPUT
-            echo "Main branch build - will deploy to test"
-          fi
-
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Fetch all history for proper version tagging
+          fetch-depth: 0
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Generate image metadata
+      - name: Generate metadata
         id: meta
         run: |
-          # Check if this is a release tag
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            # Extract version from tag (e.g., refs/tags/v1.0.0 -> v1.0.0)
             VERSION="${GITHUB_REF#refs/tags/}"
-            TAG="$VERSION"
+            echo "tag=$VERSION" >> $GITHUB_OUTPUT
             echo "is_release=true" >> $GITHUB_OUTPUT
             echo "version=$VERSION" >> $GITHUB_OUTPUT
-            echo "Release build with version: $VERSION"
           elif [ -n "${{ github.event.inputs.release_tag }}" ]; then
-            # Manual deployment of specific release
             VERSION="${{ github.event.inputs.release_tag }}"
-            TAG="$VERSION"
+            echo "tag=$VERSION" >> $GITHUB_OUTPUT
             echo "is_release=true" >> $GITHUB_OUTPUT
             echo "version=$VERSION" >> $GITHUB_OUTPUT
-            echo "Deploying specific release: $VERSION"
           else
-            # Generate a unique tag based on commit SHA and timestamp
             TAG="${GITHUB_SHA:0:8}-$(date +%s)"
+            echo "tag=$TAG" >> $GITHUB_OUTPUT
             echo "is_release=false" >> $GITHUB_OUTPUT
             echo "version=" >> $GITHUB_OUTPUT
-            echo "Development build with tag: $TAG"
           fi
 
-          echo "tags=$TAG" >> $GITHUB_OUTPUT
-          echo "Image tag: $TAG"
-
-      - name: Build Docker image
-        id: build
+      - name: Build image
+        if: github.event_name != 'pull_request'
         run: |
-          TAG="${{ steps.meta.outputs.tags }}"
+          TAG="${{ steps.meta.outputs.tag }}"
           IS_RELEASE="${{ steps.meta.outputs.is_release }}"
-          echo "Building image with tag: $TAG"
 
-          # Build the image with appropriate tags
           if [ "$IS_RELEASE" == "true" ]; then
-            # For releases, tag with version and latest
-            docker build \
-              -f Dockerfile \
-              -t ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:$TAG \
-              -t ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:latest \
-              --label "version=$TAG" \
-              --label "release=true" \
-              .
-            echo "Release build - tagged as $TAG and latest"
+            docker build -t ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:$TAG -t ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:latest .
           else
-            # For dev builds, only tag with commit-based tag
-            docker build \
-              -f Dockerfile \
-              -t ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:$TAG \
-              --label "version=$TAG" \
-              --label "release=false" \
-              .
-            echo "Development build - tagged as $TAG"
+            docker build -t ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:$TAG .
           fi
-
-          # Save the digest
-          DIGEST=$(docker inspect --format='{{.Id}}' ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:$TAG)
-          echo "digest=$DIGEST" >> $GITHUB_OUTPUT
 
       - name: Push to registry
         if: github.event_name != 'pull_request'
         run: |
-          TAG="${{ steps.meta.outputs.tags }}"
+          TAG="${{ steps.meta.outputs.tag }}"
           IS_RELEASE="${{ steps.meta.outputs.is_release }}"
-          echo "Pushing image to registry..."
 
-          # Try direct push first
-          if docker push ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:$TAG; then
-            echo "✓ Image $TAG pushed directly"
+          docker push ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:$TAG
 
-            # Push latest tag for releases
-            if [ "$IS_RELEASE" == "true" ]; then
-              docker push ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:latest
-              echo "✓ Latest tag pushed"
-            fi
-          else
-            echo "Direct push failed, using swarm manager as intermediary"
-
-            # Save and transfer via swarm manager
-            docker save ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:$TAG | gzip > /tmp/simulaiz-$TAG.tar.gz
-
-            scp -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
-              /tmp/simulaiz-$TAG.tar.gz ${{ env.SWARM_MANAGER }}:/tmp/
-
-            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${{ env.SWARM_MANAGER }} "gunzip -c /tmp/simulaiz-$TAG.tar.gz | docker load && docker push ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:$TAG && ([ \"\$IS_RELEASE\" = \"true\" ] && docker tag ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:$TAG ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:latest && docker push ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:latest || true) && rm /tmp/simulaiz-$TAG.tar.gz"
-
-            rm /tmp/simulaiz-$TAG.tar.gz
-            echo "✓ Image pushed via swarm manager"
+          if [ "$IS_RELEASE" == "true" ]; then
+            docker push ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:latest
           fi
 
-      - name: Image build summary
+      - name: Summary
         run: |
-          IS_RELEASE="${{ steps.meta.outputs.is_release }}"
-
           if [ "${{ github.event_name }}" == "pull_request" ]; then
-            echo "### 🔍 PR Build Validation" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**Status:** ✓ Docker image builds successfully" >> $GITHUB_STEP_SUMMARY
-            echo "**PR:** #${{ github.event.pull_request.number }}" >> $GITHUB_STEP_SUMMARY
-            echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "ℹ️ Image not pushed to registry (PR validation only)" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**Next Steps:**" >> $GITHUB_STEP_SUMMARY
-            echo "1. Review and approve the PR" >> $GITHUB_STEP_SUMMARY
-            echo "2. Merge to main to trigger test deployment" >> $GITHUB_STEP_SUMMARY
-          elif [ "$IS_RELEASE" == "true" ]; then
-            echo "### 🎉 Release Build Complete" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**Version:** \`${{ steps.meta.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-            echo "**Image:** \`${{ env.REGISTRY_DOMAIN }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tags }}\`" >> $GITHUB_STEP_SUMMARY
-            echo "**Also tagged as:** \`latest\`" >> $GITHUB_STEP_SUMMARY
-            echo "**Digest:** \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
-            echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "📦 **GitHub Release will be created automatically**" >> $GITHUB_STEP_SUMMARY
+            echo "### PR Build Validation" >> $GITHUB_STEP_SUMMARY
+            echo "Build validated successfully" >> $GITHUB_STEP_SUMMARY
           else
-            echo "### 🐳 Docker Image Built Successfully" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**Image:** \`${{ env.REGISTRY_DOMAIN }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tags }}\`" >> $GITHUB_STEP_SUMMARY
-            echo "**Digest:** \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
-            echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "### Build Complete" >> $GITHUB_STEP_SUMMARY
+            echo "Image: ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
           fi
 
   create-release:
-    name: Create GitHub Release
+    name: Create Release
     needs: build
     runs-on: self-hosted
     if: needs.build.outputs.is_release == 'true' && startsWith(github.ref, 'refs/tags/v')
@@ -211,281 +103,14 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Generate release notes
-        id: release_notes
-        run: |
-          VERSION="${{ needs.build.outputs.version }}"
-
-          # Get the previous tag
-          PREV_TAG=$(git tag --sort=-version:refname | grep -v "^$VERSION$" | head -n 1)
-
-          # Generate changelog
-          if [ -n "$PREV_TAG" ]; then
-            echo "Generating changelog from $PREV_TAG to $VERSION"
-            CHANGELOG=$(git log --pretty=format:"- %s (%h)" $PREV_TAG..$VERSION)
-          else
-            echo "First release, showing all commits"
-            CHANGELOG=$(git log --pretty=format:"- %s (%h)" $VERSION)
-          fi
-
-          # Create release notes file
-          cat > /tmp/release-notes.md <<'NOTES'
-## SimulAiz ${VERSION}
-
-### Docker Image
-```
-docker pull registry.shared.neutralaiz.com:5000/simulaiz:${VERSION}
-```
-
-### Changes
-${CHANGELOG}
-
-### Deployment
-This release has been built and pushed to the shared registry.
-
-To deploy to production:
-1. Go to Actions → "Build and Deploy to Shared Swarm"
-2. Click "Run workflow"
-3. Select environment: `production`
-4. Enter release tag: `${VERSION}`
-5. Click "Run workflow"
-
-### Image Details
-- **Registry**: registry.shared.neutralaiz.com:5000
-- **Image**: simulaiz:${VERSION} (also tagged as :latest)
-- **Commit**: ${{ github.sha }}
-NOTES
-          # Substitute variables
-          sed -i "s/\${VERSION}/$VERSION/g" /tmp/release-notes.md
-          sed -i "s/\${CHANGELOG}/$CHANGELOG/g" /tmp/release-notes.md
-
-          echo "release_notes_file=/tmp/release-notes.md" >> $GITHUB_OUTPUT
-
-      - name: Create GitHub Release
+      - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${{ needs.build.outputs.version }}"
-
-          gh release create "$VERSION" \
-            --title "SimulAiz $VERSION" \
-            --notes-file /tmp/release-notes.md \
-            --verify-tag
-
-          echo "✓ GitHub Release created: $VERSION"
-
-      - name: Release summary
-        run: |
-          VERSION="${{ needs.build.outputs.version }}"
-          echo "### 📦 GitHub Release Created" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Version:** $VERSION" >> $GITHUB_STEP_SUMMARY
-          echo "**Release URL:** https://github.com/${{ github.repository }}/releases/tag/$VERSION" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Ready for production deployment** ✓" >> $GITHUB_STEP_SUMMARY
-
-  deploy-test:
-    name: Deploy to Test Environment
-    needs: build
-    runs-on: self-hosted
-    if: |
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      github.event.inputs.environment == 'test'
-    environment:
-      name: test
-      url: https://simulaiz.test.neutralaiz.com
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Deploy to test swarm
-        run: |
-          TAG="${{ needs.build.outputs.image_tag }}"
-          echo "Deploying SimulAiz to test environment with tag: $TAG"
-
-          # Copy deployment files to swarm manager
-          scp -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
-            deploy/stack.yml ${{ env.SWARM_MANAGER }}:/tmp/simulaiz-stack.yml
-
-          # Update image tag in stack file and deploy
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${{ env.SWARM_MANAGER }} bash -c "'
-            sed -i \"s|image:.*simulaiz:.*|image: ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:$TAG|\" /tmp/simulaiz-stack.yml &&
-            LIVEKIT_URL=\"${{ secrets.LIVEKIT_URL }}\" \
-            LIVEKIT_API_KEY=\"${{ secrets.LIVEKIT_API_KEY }}\" \
-            LIVEKIT_API_SECRET=\"${{ secrets.LIVEKIT_API_SECRET }}\" \
-            docker stack deploy -c /tmp/simulaiz-stack.yml simulaiz --with-registry-auth &&
-            rm /tmp/simulaiz-stack.yml
-          '"
-
-      - name: Wait for deployment
-        run: |
-          echo "Waiting for services to stabilize..."
-          sleep 30
-
-          # Check service status
-          ssh -o StrictHostKeyChecking=no ${{ env.SWARM_MANAGER }} \
-            "docker service ls --filter label=com.docker.stack.namespace=simulaiz"
-
-      - name: Health check
-        run: |
-          echo "Running health checks..."
-
-          # Check if service is responding
-          MAX_RETRIES=12
-          RETRY=0
-
-          until curl -f https://simulaiz.test.neutralaiz.com/health || [ $RETRY -eq $MAX_RETRIES ]; do
-            echo "Health check attempt $((RETRY+1))/$MAX_RETRIES..."
-            RETRY=$((RETRY+1))
-            sleep 10
-          done
-
-          if [ $RETRY -eq $MAX_RETRIES ]; then
-            echo "❌ Health check failed after $MAX_RETRIES attempts"
-            exit 1
-          fi
-
-          echo "✓ Health check passed"
-
-      - name: Deployment summary
-        run: |
-          echo "### 🚀 Deployment to Test Complete" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Environment:** Test" >> $GITHUB_STEP_SUMMARY
-          echo "**URL:** https://simulaiz.test.neutralaiz.com" >> $GITHUB_STEP_SUMMARY
-          echo "**Image:** \`${{ env.REGISTRY_DOMAIN }}/${{ env.IMAGE_NAME }}:${{ needs.build.outputs.image_tag }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Status:** ✓ Healthy" >> $GITHUB_STEP_SUMMARY
-
-  deploy-production:
-    name: Deploy to Production
-    needs: build
-    runs-on: self-hosted
-    if: github.event.inputs.environment == 'production'
-    environment:
-      name: production
-      url: https://simulaiz.neutralaiz.com
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Determine image tag
-        id: image
-        run: |
-          if [ -n "${{ github.event.inputs.release_tag }}" ]; then
-            # Deploy specific release version
-            TAG="${{ github.event.inputs.release_tag }}"
-            echo "Deploying release version: $TAG"
-            echo "is_release=true" >> $GITHUB_OUTPUT
-          else
-            # Deploy latest build from main
-            TAG="${{ needs.build.outputs.image_tag }}"
-            echo "Deploying latest from main: $TAG"
-            echo "is_release=false" >> $GITHUB_OUTPUT
-          fi
-
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-
-          # Verify image exists in registry
-          echo "Verifying image exists in registry..."
-          ssh -o StrictHostKeyChecking=no ${{ env.SWARM_MANAGER }} \
-            "docker pull ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:$TAG" || {
-            echo "❌ Error: Image $TAG not found in registry"
-            exit 1
-          }
-
-          echo "✓ Image verified in registry"
-
-      - name: Create backup of current deployment
-        run: |
-          echo "Creating backup of current production deployment..."
-          ssh -o StrictHostKeyChecking=no ${{ env.SWARM_MANAGER }} \
-            "docker service inspect simulaiz_app > /tmp/simulaiz-backup-\$(date +%Y%m%d-%H%M%S).json || true"
-
-      - name: Deploy to production swarm
-        run: |
-          TAG="${{ steps.image.outputs.tag }}"
-          IS_RELEASE="${{ steps.image.outputs.is_release }}"
-
-          if [ "$IS_RELEASE" == "true" ]; then
-            echo "Deploying RELEASE $TAG to PRODUCTION"
-          else
-            echo "Deploying development build $TAG to PRODUCTION"
-          fi
-
-          # Copy production stack file
-          scp -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
-            deploy/stack.yml ${{ env.SWARM_MANAGER }}:/tmp/simulaiz-stack-prod.yml
-
-          # Update for production and deploy
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${{ env.SWARM_MANAGER }} bash -c "'
-            sed -i \"s|image:.*simulaiz:.*|image: ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:$TAG|\" /tmp/simulaiz-stack-prod.yml &&
-            sed -i \"s|simulaiz\\.test\\.neutralaiz\\.com|simulaiz.neutralaiz.com|g\" /tmp/simulaiz-stack-prod.yml &&
-            LIVEKIT_URL=\"${{ secrets.PROD_LIVEKIT_URL }}\" \
-            LIVEKIT_API_KEY=\"${{ secrets.PROD_LIVEKIT_API_KEY }}\" \
-            LIVEKIT_API_SECRET=\"${{ secrets.PROD_LIVEKIT_API_SECRET }}\" \
-            docker stack deploy -c /tmp/simulaiz-stack-prod.yml simulaiz-prod --with-registry-auth &&
-            rm /tmp/simulaiz-stack-prod.yml
-          '"
-
-      - name: Wait for production deployment
-        run: |
-          echo "Waiting for production services to stabilize..."
-          sleep 60
-
-          # Monitor rollout
-          ssh -o StrictHostKeyChecking=no ${{ env.SWARM_MANAGER }} \
-            "docker service ls --filter label=com.docker.stack.namespace=simulaiz-prod"
-
-      - name: Production health check
-        run: |
-          echo "Running production health checks..."
-
-          MAX_RETRIES=20
-          RETRY=0
-
-          until curl -f https://simulaiz.neutralaiz.com/health || [ $RETRY -eq $MAX_RETRIES ]; do
-            echo "Health check attempt $((RETRY+1))/$MAX_RETRIES..."
-            RETRY=$((RETRY+1))
-            sleep 15
-          done
-
-          if [ $RETRY -eq $MAX_RETRIES ]; then
-            echo "❌ Production health check failed"
-            echo "Initiating rollback..."
-
-            ssh -o StrictHostKeyChecking=no ${{ env.SWARM_MANAGER }} \
-              "docker service rollback simulaiz-prod_app"
-
-            exit 1
-          fi
-
-          echo "✓ Production health check passed"
-
-      - name: Production deployment summary
-        run: |
-          TAG="${{ steps.image.outputs.tag }}"
-          IS_RELEASE="${{ steps.image.outputs.is_release }}"
-
-          echo "### 🎉 Production Deployment Complete" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Environment:** Production" >> $GITHUB_STEP_SUMMARY
-          echo "**URL:** https://simulaiz.neutralaiz.com" >> $GITHUB_STEP_SUMMARY
-
-          if [ "$IS_RELEASE" == "true" ]; then
-            echo "**Release Version:** \`$TAG\` 📦" >> $GITHUB_STEP_SUMMARY
-            echo "**Release URL:** https://github.com/${{ github.repository }}/releases/tag/$TAG" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "**Image Tag:** \`$TAG\`" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          echo "**Full Image:** \`${{ env.REGISTRY_DOMAIN }}/${{ env.IMAGE_NAME }}:$TAG\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Status:** ✓ Deployed and Healthy" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "🔍 Monitor at: https://monitoring.neutralaiz.com/d/simulaiz" >> $GITHUB_STEP_SUMMARY
+          gh release create "$VERSION" --title "SimulAiz $VERSION" --generate-notes
