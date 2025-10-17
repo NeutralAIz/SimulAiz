@@ -162,18 +162,7 @@ jobs:
             scp -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
               /tmp/simulaiz-$TAG.tar.gz ${{ env.SWARM_MANAGER }}:/tmp/
 
-            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${{ env.SWARM_MANAGER }} << EOF
-              gunzip -c /tmp/simulaiz-$TAG.tar.gz | docker load
-              docker push ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:$TAG
-
-              # Push latest tag for releases
-              if [ "$IS_RELEASE" == "true" ]; then
-                docker tag ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:$TAG ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:latest
-                docker push ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:latest
-              fi
-
-              rm /tmp/simulaiz-$TAG.tar.gz
-EOF
+            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${{ env.SWARM_MANAGER }} "gunzip -c /tmp/simulaiz-$TAG.tar.gz | docker load && docker push ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:$TAG && ([ \"\$IS_RELEASE\" = \"true\" ] && docker tag ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:$TAG ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:latest && docker push ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:latest || true) && rm /tmp/simulaiz-$TAG.tar.gz"
 
             rm /tmp/simulaiz-$TAG.tar.gz
             echo "✓ Image pushed via swarm manager"
