@@ -234,32 +234,35 @@ jobs:
           fi
 
           # Create release notes file
-          cat > /tmp/release-notes.md << EOF
-          ## SimulAiz $VERSION
+          cat > /tmp/release-notes.md <<'NOTES'
+## SimulAiz ${VERSION}
 
-          ### Docker Image
-          \`\`\`
-          docker pull registry.shared.neutralaiz.com:5000/simulaiz:$VERSION
-          \`\`\`
+### Docker Image
+```
+docker pull registry.shared.neutralaiz.com:5000/simulaiz:${VERSION}
+```
 
-          ### Changes
-          $CHANGELOG
+### Changes
+${CHANGELOG}
 
-          ### Deployment
-          This release has been built and pushed to the shared registry.
+### Deployment
+This release has been built and pushed to the shared registry.
 
-          To deploy to production:
-          1. Go to Actions → "Build and Deploy to Shared Swarm"
-          2. Click "Run workflow"
-          3. Select environment: \`production\`
-          4. Enter release tag: \`$VERSION\`
-          5. Click "Run workflow"
+To deploy to production:
+1. Go to Actions → "Build and Deploy to Shared Swarm"
+2. Click "Run workflow"
+3. Select environment: `production`
+4. Enter release tag: `${VERSION}`
+5. Click "Run workflow"
 
-          ### Image Details
-          - **Registry**: registry.shared.neutralaiz.com:5000
-          - **Image**: simulaiz:$VERSION (also tagged as :latest)
-          - **Commit**: ${{ github.sha }}
-          EOF
+### Image Details
+- **Registry**: registry.shared.neutralaiz.com:5000
+- **Image**: simulaiz:${VERSION} (also tagged as :latest)
+- **Commit**: ${{ github.sha }}
+NOTES
+          # Substitute variables
+          sed -i "s/\${VERSION}/$VERSION/g" /tmp/release-notes.md
+          sed -i "s/\${CHANGELOG}/$CHANGELOG/g" /tmp/release-notes.md
 
           echo "release_notes_file=/tmp/release-notes.md" >> $GITHUB_OUTPUT
 
@@ -311,21 +314,14 @@ jobs:
             deploy/stack.yml ${{ env.SWARM_MANAGER }}:/tmp/simulaiz-stack.yml
 
           # Update image tag in stack file and deploy
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${{ env.SWARM_MANAGER }} << EOF
-            # Update the image tag
-            sed -i 's|image:.*simulaiz:.*|image: ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:$TAG|' /tmp/simulaiz-stack.yml
-
-            # Load environment variables (from stored secrets)
-            export LIVEKIT_URL="${{ secrets.LIVEKIT_URL }}"
-            export LIVEKIT_API_KEY="${{ secrets.LIVEKIT_API_KEY }}"
-            export LIVEKIT_API_SECRET="${{ secrets.LIVEKIT_API_SECRET }}"
-
-            # Deploy the stack
-            docker stack deploy -c /tmp/simulaiz-stack.yml simulaiz --with-registry-auth
-
-            # Clean up
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${{ env.SWARM_MANAGER }} bash -c "'
+            sed -i \"s|image:.*simulaiz:.*|image: ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:$TAG|\" /tmp/simulaiz-stack.yml &&
+            LIVEKIT_URL=\"${{ secrets.LIVEKIT_URL }}\" \
+            LIVEKIT_API_KEY=\"${{ secrets.LIVEKIT_API_KEY }}\" \
+            LIVEKIT_API_SECRET=\"${{ secrets.LIVEKIT_API_SECRET }}\" \
+            docker stack deploy -c /tmp/simulaiz-stack.yml simulaiz --with-registry-auth &&
             rm /tmp/simulaiz-stack.yml
-EOF
+          '"
 
       - name: Wait for deployment
         run: |
@@ -409,10 +405,8 @@ EOF
       - name: Create backup of current deployment
         run: |
           echo "Creating backup of current production deployment..."
-          ssh -o StrictHostKeyChecking=no ${{ env.SWARM_MANAGER }} << 'EOF'
-            # Export current stack config as backup
-            docker service inspect simulaiz_app > /tmp/simulaiz-backup-$(date +%Y%m%d-%H%M%S).json || true
-EOF
+          ssh -o StrictHostKeyChecking=no ${{ env.SWARM_MANAGER }} \
+            "docker service inspect simulaiz_app > /tmp/simulaiz-backup-\$(date +%Y%m%d-%H%M%S).json || true"
 
       - name: Deploy to production swarm
         run: |
@@ -430,22 +424,15 @@ EOF
             deploy/stack.yml ${{ env.SWARM_MANAGER }}:/tmp/simulaiz-stack-prod.yml
 
           # Update for production and deploy
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${{ env.SWARM_MANAGER }} << EOF
-            # Update the image tag and domain for production
-            sed -i 's|image:.*simulaiz:.*|image: ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:$TAG|' /tmp/simulaiz-stack-prod.yml
-            sed -i 's|simulaiz\.test\.neutralaiz\.com|simulaiz.neutralaiz.com|g' /tmp/simulaiz-stack-prod.yml
-
-            # Load production environment variables
-            export LIVEKIT_URL="${{ secrets.PROD_LIVEKIT_URL }}"
-            export LIVEKIT_API_KEY="${{ secrets.PROD_LIVEKIT_API_KEY }}"
-            export LIVEKIT_API_SECRET="${{ secrets.PROD_LIVEKIT_API_SECRET }}"
-
-            # Deploy with update config for zero-downtime
-            docker stack deploy -c /tmp/simulaiz-stack-prod.yml simulaiz-prod --with-registry-auth
-
-            # Clean up
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${{ env.SWARM_MANAGER }} bash -c "'
+            sed -i \"s|image:.*simulaiz:.*|image: ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:$TAG|\" /tmp/simulaiz-stack-prod.yml &&
+            sed -i \"s|simulaiz\\.test\\.neutralaiz\\.com|simulaiz.neutralaiz.com|g\" /tmp/simulaiz-stack-prod.yml &&
+            LIVEKIT_URL=\"${{ secrets.PROD_LIVEKIT_URL }}\" \
+            LIVEKIT_API_KEY=\"${{ secrets.PROD_LIVEKIT_API_KEY }}\" \
+            LIVEKIT_API_SECRET=\"${{ secrets.PROD_LIVEKIT_API_SECRET }}\" \
+            docker stack deploy -c /tmp/simulaiz-stack-prod.yml simulaiz-prod --with-registry-auth &&
             rm /tmp/simulaiz-stack-prod.yml
-EOF
+          '"
 
       - name: Wait for production deployment
         run: |
