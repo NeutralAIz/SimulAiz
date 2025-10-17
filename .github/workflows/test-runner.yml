@@ -1,0 +1,15 @@
+name: Test Runner
+
+on:
+  push:
+    branches:
+      - feature/cicd-pipeline-and-releases
+
+jobs:
+  test:
+    runs-on: self-hosted
+    steps:
+      - name: Test runner
+        run: |
+          echo "Runner is working!"
+          docker --version

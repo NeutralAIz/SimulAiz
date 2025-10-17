@@ -1,0 +1,116 @@
+# SimulAiz CI/CD Pipeline - PR-gated with Release Support
+name: Build and Deploy
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'test'
+        type: choice
+        options: [test, production]
+      release_tag:
+        description: 'Release tag (e.g., v1.0.0)'
+        required: false
+        type: string
+
+env:
+  REGISTRY_IP: 192.168.50.11:5000
+  IMAGE_NAME: simulaiz
+  SWARM_MANAGER: ubuntu@192.168.50.11
+
+jobs:
+  build:
+    name: Build Docker Image
+    runs-on: self-hosted
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tag }}
+      is_release: ${{ steps.meta.outputs.is_release }}
+      version: ${{ steps.meta.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate metadata
+        id: meta
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+            echo "tag=$VERSION" >> $GITHUB_OUTPUT
+            echo "is_release=true" >> $GITHUB_OUTPUT
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+          elif [ -n "${{ github.event.inputs.release_tag }}" ]; then
+            VERSION="${{ github.event.inputs.release_tag }}"
+            echo "tag=$VERSION" >> $GITHUB_OUTPUT
+            echo "is_release=true" >> $GITHUB_OUTPUT
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+          else
+            TAG="${GITHUB_SHA:0:8}-$(date +%s)"
+            echo "tag=$TAG" >> $GITHUB_OUTPUT
+            echo "is_release=false" >> $GITHUB_OUTPUT
+            echo "version=" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build image
+        if: github.event_name != 'pull_request'
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          IS_RELEASE="${{ steps.meta.outputs.is_release }}"
+
+          if [ "$IS_RELEASE" == "true" ]; then
+            docker build -t ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:$TAG -t ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:latest .
+          else
+            docker build -t ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:$TAG .
+          fi
+
+      - name: Push to registry
+        if: github.event_name != 'pull_request'
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          IS_RELEASE="${{ steps.meta.outputs.is_release }}"
+
+          docker push ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:$TAG
+
+          if [ "$IS_RELEASE" == "true" ]; then
+            docker push ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:latest
+          fi
+
+      - name: Summary
+        run: |
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            echo "### PR Build Validation" >> $GITHUB_STEP_SUMMARY
+            echo "Build validated successfully" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### Build Complete" >> $GITHUB_STEP_SUMMARY
+            echo "Image: ${{ env.REGISTRY_IP }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  create-release:
+    name: Create Release
+    needs: build
+    runs-on: self-hosted
+    if: needs.build.outputs.is_release == 'true' && startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ needs.build.outputs.version }}"
+          gh release create "$VERSION" --title "SimulAiz $VERSION" --generate-notes

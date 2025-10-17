@@ -15,18 +15,32 @@ services:
       replicas: 1
       restart_policy:
         condition: on-failure
+        delay: 10s
+        max_attempts: 3
+      update_config:
+        parallelism: 1
+        delay: 15s
+        failure_action: rollback
+        monitor: 30s
       labels:
         - "traefik.enable=true"
         - "traefik.http.routers.simulaiz.rule=Host(`simulaiz.test.neutralaiz.com`)"
         - "traefik.http.routers.simulaiz.entrypoints=web"
         - "traefik.http.services.simulaiz.loadbalancer.server.port=8000"
+        - "traefik.http.services.simulaiz.loadbalancer.healthcheck.path=/health"
+        - "traefik.http.services.simulaiz.loadbalancer.healthcheck.interval=10s"
+        - "traefik.http.services.simulaiz.loadbalancer.healthcheck.timeout=5s"
         - "traefik.http.routers.simulaiz.middlewares=simulaiz-headers"
         - "traefik.http.middlewares.simulaiz-headers.headers.stsSeconds=31536000"
       resources:
+        limits:
+          memory: 16G
         reservations:
-          devices:
-            - capabilities: ["gpu"]
-              driver: nvidia
+          memory: 8G
+          generic_resources:
+            - discrete_resource_spec:
+                kind: 'gpu'
+                value: 1
 
   traefik:
     image: traefik:v2.11
