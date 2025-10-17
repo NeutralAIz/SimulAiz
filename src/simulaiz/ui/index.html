@@ -302,9 +302,7 @@
 
       document.getElementById('connect').addEventListener('click', doConnect);
       document.getElementById('disconnect').addEventListener('click', doDisconnect);
-    </script>
-  </body>
-  </html>
+
       // Upload avatar image to the container and retain internal path
       document.getElementById('uploadAvatar').addEventListener('click', async () => {
         const f = document.getElementById('avatarFile').files?.[0];
@@ -437,3 +435,6 @@
         img.src = data.publicUrl;
         document.getElementById('genStatus').textContent = 'Done';
       });
+    </script>
+  </body>
+  </html>
