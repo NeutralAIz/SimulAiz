@@ -1,3 +1,4 @@
+# SimulAiz CI/CD Pipeline - PR-gated with Release Support
 name: Build and Deploy to Shared Swarm
 
 on:
