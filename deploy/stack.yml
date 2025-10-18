@@ -2,13 +2,23 @@ version: "3.9"
 
 services:
   app:
-    image: simulaz/app:latest
-    env_file:
-      - .env
+    image: 192.168.50.11:5000/simulaiz:latest
     environment:
       - APP_ENV=${APP_ENV:-production}
       - SIMULAIZ_LOG_LEVEL=${SIMULAIZ_LOG_LEVEL:-INFO}
       - SIMULAIZ_PORT=${SIMULAIZ_PORT:-8000}
+      - SKIP_DEFAULT_AVATAR_GENERATION=true
+    volumes:
+      # Mount CephFS for model storage to avoid filling local disk
+      - type: bind
+        source: /mnt/cephfs/storage/simulaiz/models
+        target: /models
+      - type: bind
+        source: /mnt/cephfs/cache/huggingface
+        target: /root/.cache/huggingface
+      - type: bind
+        source: /mnt/cephfs/storage/simulaiz/assets
+        target: /app/assets
     networks:
       - webhost-network
     deploy:
@@ -24,10 +34,10 @@ services:
         monitor: 30s
       labels:
         - "traefik.enable=true"
-        - "traefik.http.routers.simulaiz.rule=Host(`simulaiz.test.neutralaiz.com`)"
+        - "traefik.http.routers.simulaiz.rule=Host(`simulaiz.shared.neutralaiz.com`)"
         - "traefik.http.routers.simulaiz.entrypoints=web"
         - "traefik.http.services.simulaiz.loadbalancer.server.port=8000"
-        - "traefik.http.services.simulaiz.loadbalancer.healthcheck.path=/health"
+        - "traefik.http.services.simulaiz.loadbalancer.healthcheck.path=/api/health"
         - "traefik.http.services.simulaiz.loadbalancer.healthcheck.interval=10s"
         - "traefik.http.services.simulaiz.loadbalancer.healthcheck.timeout=5s"
         - "traefik.http.routers.simulaiz.middlewares=simulaiz-headers"
@@ -37,44 +47,7 @@ services:
           memory: 16G
         reservations:
           memory: 8G
-          generic_resources:
-            - discrete_resource_spec:
-                kind: 'gpu'
-                value: 1
-
-  traefik:
-    image: traefik:v2.11
-    ports:
-      - target: 80
-        published: 80
-        protocol: tcp
-        mode: host
-    networks:
-      - webhost-network
-    volumes:
-      - type: bind
-        source: /var/run/docker.sock
-        target: /var/run/docker.sock
-        read_only: true
-      - traefik-data:/var/lib/traefik
-    configs:
-      - source: traefik-dynamic
-        target: /etc/traefik/dynamic/dynamic.yml
-    deploy:
-      placement:
-        constraints:
-          - node.role == manager
-      restart_policy:
-        condition: on-failure
 
 networks:
   webhost-network:
     external: true
-
-volumes:
-  traefik-data:
-    external: false
-
-configs:
-  traefik-dynamic:
-    file: ./traefik/dynamic.yml

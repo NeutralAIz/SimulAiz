@@ -71,24 +71,11 @@ def create_app() -> FastAPI:
         # Ensure default avatar image exists; generate one using SDXL-Turbo if possible
         default_path = assets_dir / "uploads" / "default_headshot.png"
         if not default_path.exists():
-            try:
-                import torch  # type: ignore
-                from diffusers import StableDiffusionXLPipeline  # type: ignore
-                model_id = os.getenv("SDXL_MODEL", "stabilityai/sdxl-turbo")
-                dtype = torch.float16 if torch.cuda.is_available() else torch.float32
-                pipe = StableDiffusionXLPipeline.from_pretrained(model_id, torch_dtype=dtype)
-                device = "cuda" if torch.cuda.is_available() else "cpu"
-                pipe = pipe.to(device)
-                g = torch.Generator(device=device).manual_seed(1234)
-                prompt = os.getenv(
-                    "DEFAULT_HEADSHOT_PROMPT",
-                    "front-facing studio portrait of a person, neutral expression, plain background, photorealistic, sharp focus",
-                )
-                img = pipe(prompt=prompt, width=512, height=512, generator=g, num_inference_steps=6, guidance_scale=0.0).images[0]
-                default_path.parent.mkdir(parents=True, exist_ok=True)
-                img.save(default_path)
-            except Exception:
-                # Fallback: draw a neutral placeholder tile to avoid 404s
+            # Skip expensive model download in production unless explicitly enabled
+            skip_generation = os.getenv("SKIP_DEFAULT_AVATAR_GENERATION", "false").lower() == "true"
+
+            if skip_generation:
+                # Create simple placeholder immediately
                 try:
                     from PIL import Image, ImageDraw  # type: ignore
 
@@ -100,6 +87,37 @@ def create_app() -> FastAPI:
                     im.save(default_path)
                 except Exception:
                     pass
+            else:
+                # Try to generate with SDXL
+                try:
+                    import torch  # type: ignore
+                    from diffusers import StableDiffusionXLPipeline  # type: ignore
+                    model_id = os.getenv("SDXL_MODEL", "stabilityai/sdxl-turbo")
+                    dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+                    pipe = StableDiffusionXLPipeline.from_pretrained(model_id, torch_dtype=dtype)
+                    device = "cuda" if torch.cuda.is_available() else "cpu"
+                    pipe = pipe.to(device)
+                    g = torch.Generator(device=device).manual_seed(1234)
+                    prompt = os.getenv(
+                        "DEFAULT_HEADSHOT_PROMPT",
+                        "front-facing studio portrait of a person, neutral expression, plain background, photorealistic, sharp focus",
+                    )
+                    img = pipe(prompt=prompt, width=512, height=512, generator=g, num_inference_steps=6, guidance_scale=0.0).images[0]
+                    default_path.parent.mkdir(parents=True, exist_ok=True)
+                    img.save(default_path)
+                except Exception:
+                    # Fallback: draw a neutral placeholder tile to avoid 404s
+                    try:
+                        from PIL import Image, ImageDraw  # type: ignore
+
+                        default_path.parent.mkdir(parents=True, exist_ok=True)
+                        im = Image.new("RGB", (512, 512), (18, 24, 40))
+                        d = ImageDraw.Draw(im)
+                        d.ellipse((156, 96, 356, 296), fill=(220, 220, 220))
+                        d.rectangle((176, 320, 336, 420), fill=(220, 220, 220))
+                        im.save(default_path)
+                    except Exception:
+                        pass
         # Expose container-internal path for agent default
         if default_path.exists():
             os.environ["DEFAULT_AVATAR_IMAGE_PATH"] = "/app" + str(default_path.resolve())[len(str(Path.cwd().resolve())) :]
