@@ -34,13 +34,23 @@ services:
         monitor: 30s
       labels:
         - "traefik.enable=true"
+        # HTTP router - redirect to HTTPS
+        - "traefik.http.routers.simulaiz-http.rule=Host(`simulaiz.shared.neutralaiz.com`)"
+        - "traefik.http.routers.simulaiz-http.entrypoints=web"
+        - "traefik.http.routers.simulaiz-http.middlewares=simulaiz-redirect"
+        - "traefik.http.middlewares.simulaiz-redirect.redirectscheme.scheme=https"
+        - "traefik.http.middlewares.simulaiz-redirect.redirectscheme.permanent=true"
+        # HTTPS router
         - "traefik.http.routers.simulaiz.rule=Host(`simulaiz.shared.neutralaiz.com`)"
-        - "traefik.http.routers.simulaiz.entrypoints=web"
+        - "traefik.http.routers.simulaiz.entrypoints=websecure"
+        - "traefik.http.routers.simulaiz.tls.certresolver=letsencrypt"
+        - "traefik.http.routers.simulaiz.middlewares=simulaiz-headers"
+        # Service configuration
         - "traefik.http.services.simulaiz.loadbalancer.server.port=8000"
         - "traefik.http.services.simulaiz.loadbalancer.healthcheck.path=/api/health"
         - "traefik.http.services.simulaiz.loadbalancer.healthcheck.interval=10s"
         - "traefik.http.services.simulaiz.loadbalancer.healthcheck.timeout=5s"
-        - "traefik.http.routers.simulaiz.middlewares=simulaiz-headers"
+        # Security headers
         - "traefik.http.middlewares.simulaiz-headers.headers.stsSeconds=31536000"
       resources:
         limits:
