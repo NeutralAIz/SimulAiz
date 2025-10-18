@@ -60,6 +60,11 @@ jobs:
             echo "version=" >> $GITHUB_OUTPUT
           fi
 
+      - name: Login to registry
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "registrypass" | docker login ${{ env.REGISTRY_IP }} -u admin --password-stdin
+
       - name: Build image
         if: github.event_name != 'pull_request'
         run: |
