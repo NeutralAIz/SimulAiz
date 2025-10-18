@@ -21,7 +21,7 @@ on:
         type: string
 
 env:
-  REGISTRY_IP: 192.168.50.11:5000
+  REGISTRY_IP: localhost:5000
   IMAGE_NAME: simulaiz
   SWARM_MANAGER: ubuntu@192.168.50.11
 
